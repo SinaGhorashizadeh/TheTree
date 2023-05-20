@@ -1,0 +1,1217 @@
+
+
+Branch.cs
+
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using System.Linq;
+
+public class Branch : MonoBehaviour
+{
+    #region Vars
+    public Tree theTree;
+    public Tree theTreeClass;
+
+    public List<Segment> segments;
+
+    public  LineRenderer lineRenderer;
+
+    private Branch parentBranch = null;
+
+    private Segment parentSegment = null;
+
+    private Material lineRendererMaterial;
+
+    public  float growthSpeed  = 0.1f;  //  1 is meter per sec
+    private float growthRate   = 0f  ;  //  = growthSpeed * Time.deltaTime
+    private float widthToLengthRatio = 0.04f;
+
+    public  float width   = 0;
+    public  float Length  = 0f  ;  //  lenght of branch for future use
+
+    public float windRes = 1f;
+
+    private float distanceToSeg = 1;
+
+    public  float maxGrowthLenght = 2f;
+    public  float maxWindResWidth = 3;
+
+    public float branchAngle = 0;
+
+    private Vector3 myParentsWereOrAreHere;
+
+    private int   birthTime    = 0   ;
+    public  int   generation   = 0   ;
+    private int   Childes      = 0   ;
+
+    #endregion Vars
+
+    #region MonoBehaviour
+
+    void Start()
+    {
+        lineRenderer = this.GetComponent<LineRenderer>();
+        theTreeClass = theTree.GetComponent<Tree>();
+
+        lineRenderer.positionCount = segments.Count;
+        lineRendererMaterial       = lineRenderer.material;
+
+        if (!theTree.branches.ContainsKey(generation))
+        {
+            theTree.branches[generation] = new List<Branch>();
+        }
+
+        theTree.branches[generation].Add(this.GetComponent<Branch>());
+
+        UpdateLineRendererPoints();
+    }
+
+    void Update()
+    {
+        if (theTreeClass.grow && Length < maxGrowthLenght)
+        {
+            Grow();
+            UpdateLengthOfBranch(GetSegmentsLocations());
+            CalculateWidth();
+            CalculateColorOfBarkMaterial();
+        }
+        CalculateWorldPositions();
+
+        Wind();
+
+        UpdateLineRendererPoints();
+
+        if (Length >= maxGrowthLenght / 2 && Childes == 0)
+        {
+            if (generation < theTree.maxGeneration)
+            {
+                //BranchOnTheTip(Random.Range(2, 4));
+                foreach (Segment seg in segments)
+                {
+                    if(seg.oneChild == false && seg.index != 0 && this.gameObject.name == "MainBranch" && segments.Count == 8)
+                    {
+                        for (int z = 0; z < 360; z += 1)
+                        {
+                            BranchOnTheTip(1,z);
+                        }
+
+                        //tempShit(seg);
+                    }
+                }
+            }
+        }
+
+        CheckMouse();
+    }
+    #endregion MonoBehaviour
+
+    #region Growth
+    private void Grow()
+    {
+        growthRate = growthSpeed*theTree.growthSpeedAmp * Time.deltaTime;
+        //growthRate = ((growthSpeed*theTree.growthSpeedAmp)/ (segments.Count-1)) * Time.deltaTime;
+        Vector3 newPoint;
+
+        for (int i = 0; i < segments.Count-1; i++)
+        {
+            if(segments[i].grows == true)
+            {
+                newPoint = Vector3.Lerp(
+                segments[i + 1].reletivePosition,
+                CalculateEndPoint(segments[i + 1].reletivePosition, 1, segments[i].angle), growthRate);
+                //hard coded 1 distance look at this later
+
+                Vector3 pathVector = newPoint - segments[i + 1].reletivePosition;
+
+                for (int i2 = i + 1; i2 < segments.Count; i2++)
+                {
+                    segments[i2].reletivePosition += pathVector;
+                }
+
+                segments[i + 1].reletivePosition = newPoint;
+
+                //make this a function
+
+                if (Vector3.Distance(segments[segments.Count - 1].reletivePosition, 
+                                     segments[segments.Count - 2].reletivePosition) >= distanceToSeg)
+                {
+                    AddOneSegOnTop();
+
+                    segments[i].grows = false;
+                }
+            } 
+        }
+    }
+
+    private void tempShit(Segment seg)
+    {
+        //BranchFromSide(seg,30, sideThisTime);
+        if (EvenOrOdd(Random.Range(1, 9)))
+        {
+            if (theTreeClass.productionCreddit >= 1)
+            {
+                LeafFromSide(seg, EvenOrOdd(seg.index), theTreeClass.LeafBluePrint);
+                theTreeClass.productionCreddit -= 1;
+            }
+        }
+        else
+        {
+            if (theTreeClass.productionCreddit >= 2)
+            {
+                BranchFromSide(seg, Random.Range(40, 20), EvenOrOdd(seg.index));
+                theTreeClass.productionCreddit -= 2;
+            }
+
+        }
+    }
+    private void CalculateColorOfBarkMaterial()
+    {
+        float age = (1 * Length) / theTree.lengthToBeDarkestBark;
+
+        if (age > 1) 
+        {
+            age = 1;
+        }
+
+        lineRendererMaterial.SetFloat("_Age",age);
+    }
+
+    #endregion Growth
+
+    #region LineRenderer
+    private void UpdateLineRendererPoints()
+    {
+        if (theTreeClass.wind == false)
+        {
+            foreach (Segment i in segments)
+            {
+                if (parentSegment != null)
+                {
+                    lineRenderer.SetPosition(i.index, i.reletivePosition + parentSegment.worldPosition);
+                }
+                else
+                {
+                    lineRenderer.SetPosition(i.index, i.reletivePosition);
+                }
+            }
+        }
+        else
+        {
+            foreach (Segment i in segments)
+            {
+                if (parentSegment != null)
+                {
+                    lineRenderer.SetPosition(i.index, i.windyReletivePosition + parentSegment.windyWorldPosition);
+                }
+                else
+                {
+                    lineRenderer.SetPosition(i.index, i.windyReletivePosition);
+                }
+            }
+        }
+    }
+
+    private void CalculateWidth()
+    {
+        width = Length * widthToLengthRatio;
+        lineRenderer.startWidth = width;
+        lineRenderer.endWidth = width;
+    }
+
+    #endregion LineRenderer
+
+    #region Statistics
+    void UpdateLengthOfBranch(List<Vector3> points)
+    {
+        float length = 0;
+        for (int i = 0; i < points.Count - 1; i++)
+        {
+            length += Vector3.Distance(points[i], points[i + 1]);
+        }
+        Length = length;
+    }
+    #endregion Statistics
+
+    #region segments
+    private List<Vector3> GetSegmentsLocations()
+    {
+        List<Vector3> output = new List<Vector3>();
+
+        foreach (Segment i in segments)
+        {
+            output.Add(i.reletivePosition);
+        }
+        return output;
+    }
+
+    private void AddOneSegOnTop()
+    {
+        Segment lastOne = segments[segments.Count - 1];
+
+        segments.Add(new Segment(lastOne.reletivePosition, lastOne.index + 1, lastOne.angle));
+        lineRenderer.positionCount++;
+
+        // update what is needed
+    }
+
+    #endregion segments
+
+    #region Factory
+
+    private void GiveBirth(Segment parentSeg, float childGrowthAngle, Tree theTreeRef, float childMaxGrowthRate)
+    {
+        GameObject instantBranch = Instantiate(theTree.branchBluePrint);
+        instantBranch.transform.SetParent(this.transform);
+
+        Branch branchComponent = instantBranch.GetComponent<Branch>();
+
+        branchComponent.parentSegment = parentSeg;
+        branchComponent.myParentsWereOrAreHere = parentSeg.reletivePosition;
+        branchComponent.parentBranch = this.GetComponent<Branch>();
+        branchComponent.theTree = theTreeRef;
+        branchComponent.maxGrowthLenght = maxGrowthLenght / childMaxGrowthRate;
+        branchComponent.generation += generation + 1;
+
+        branchComponent.lineRenderer = branchComponent.GetComponent<LineRenderer>();
+        branchComponent.lineRenderer.sortingOrder = lineRenderer.sortingOrder - 1;
+
+        branchComponent.segments[0].angle = childGrowthAngle;
+        branchComponent.segments[1].angle = childGrowthAngle;
+
+        branchComponent.segments[0].reletivePosition = new Vector3(0, 0, 0);
+        branchComponent.segments[1].reletivePosition = new Vector3(0, 0, 0);
+    }
+
+    private void GiveBirth(Segment parentSeg, GameObject Leaf, float offAngle, bool side)
+    {
+        GameObject instantLeaf = Instantiate(Leaf);
+        instantLeaf.transform.SetParent(this.transform);
+
+        Leaf leafComponent = instantLeaf.GetComponent<Leaf>();
+
+        leafComponent.transform.position = parentSeg.worldPosition;
+
+        leafComponent.tree = theTreeClass;
+        leafComponent.offAngle = offAngle;
+        leafComponent.daddySeg = parentSeg;
+        leafComponent.mommyBra = this.GetComponent<Branch>();
+        leafComponent.side = side;
+    }
+
+    private void BranchOnTheTip(int HowManyBranches,float angle)
+    {
+        for(int i = 0; i < HowManyBranches; i++)
+        {
+            GiveBirth(segments[segments.Count-1], angle, theTree,1.5f);
+            Childes++;
+        }
+    }
+
+    private void BranchFromSide(Segment seg, float angle, bool side)
+    {
+        float perpendicularAngle = 0;
+
+        if (seg.index == 0)
+        {
+            perpendicularAngle = PerpendicularAngle(seg.reletivePosition, segments[1].reletivePosition, side);
+        }
+        else
+        {
+            perpendicularAngle = PerpendicularAngle(seg.reletivePosition, segments[seg.index - 1].reletivePosition, side);
+        }
+
+        if (side)
+        {
+            GiveBirth(seg, perpendicularAngle-angle, theTree, 1.5f);
+        }
+        else
+        {
+            GiveBirth(seg, perpendicularAngle+angle, theTree, 1.5f);
+        }
+        
+        seg.oneChild = true;
+    }
+
+    private void LeafFromSide(Segment seg, bool side, GameObject leaf)
+    {
+        float perpendicularAngle = 0;
+
+        if (seg.index == 0)
+        {
+            perpendicularAngle = PerpendicularAngle(seg.reletivePosition, segments[1].reletivePosition, side);
+        }
+        else
+        {
+            perpendicularAngle = PerpendicularAngle(seg.reletivePosition, segments[seg.index - 1].reletivePosition, side);
+        }
+
+        GiveBirth(seg, leaf, perpendicularAngle - 90, side);
+
+        seg.oneChild = true;
+    }
+
+    void DecideBranchOrLeaf(Segment seg)
+{
+    if (seg.oneChild == false && seg.index != 0)
+    {
+        if (EvenOrOdd(Random.Range(1, 9)))
+        {
+            if (theTreeClass.productionCreddit >= 1)
+            {
+                LeafFromSide(seg, EvenOrOdd(seg.index), theTreeClass.LeafBluePrint);
+                theTreeClass.productionCreddit -= 1;
+            }
+        }
+        else
+        {
+            if (theTreeClass.productionCreddit >= 2)
+            {
+                BranchFromSide(seg, Random.Range(40, 20), EvenOrOdd(seg.index));
+                theTreeClass.productionCreddit -= 2;
+            }
+        }
+    }
+}
+
+    //private void MakeLeaf(Segment parentSeg,bool side,)
+
+    #endregion Factory
+
+    #region Math
+
+    private Vector3 CalculateEndPoint(Vector3 startPoint, float distance, float angle)
+    {
+        float angleRadians = angle * Mathf.Deg2Rad;
+
+        float x = startPoint.x + distance * Mathf.Cos(angleRadians);
+        float y = startPoint.y + distance * Mathf.Sin(angleRadians);
+
+        return new Vector3(x, y, startPoint.z);
+    }
+
+    public static float PerpendicularAngle(Vector2 point1, Vector2 point2, bool side)
+    {
+        float dx = point2.x - point1.x;
+        float dy = point2.y - point1.y;
+        float perpSlope = -dx / dy;
+
+        float angle = Mathf.Atan(perpSlope) * Mathf.Rad2Deg;
+
+        if (side)
+        {
+            angle += 180;
+        }
+
+        return angle;
+    }
+
+    private void CalculateWorldPositions()
+    {
+        if(parentSegment != null)
+        {
+            for (int i = 0; i < segments.Count; i++)
+            {
+                segments[i].worldPosition = parentSegment.worldPosition + segments[i].reletivePosition;
+            }
+        }
+        else
+        {
+            for (int i = 0; i < segments.Count; i++)
+            {
+                segments[i].worldPosition = segments[i].reletivePosition;
+            }
+        }
+    }
+
+    float AngleBetweenTwoPoints(Vector2 point1, Vector2 point2)
+    {
+        float angle = Mathf.Atan2(point2.y - point1.y, point2.x - point1.x) * Mathf.Rad2Deg;
+        if (angle < 0f) angle += 360f;
+        return angle;
+    }
+
+    private bool EvenOrOdd(int number)
+    {
+        return number % 2 == 0;
+    }
+
+
+    private float Complement(float x)
+    {
+        if (x > 1)
+        {
+            return 0;
+        }
+
+        return 1 - x;
+    }
+
+    private float Normalize(float value, float min, float max)
+    {
+        return (value - min) / (max - min);
+    }
+    
+
+    Vector3 RotatePoint(Vector3 point, Vector3 pivot, float angleDegrees)
+    {
+        // Convert angle to radians
+        float angleRadians = angleDegrees * Mathf.Deg2Rad;
+
+        // Translate point to origin
+        Vector3 translatedPoint = point - pivot;
+
+        // Rotate point
+        Vector3 rotatedPoint = new Vector3(
+            translatedPoint.x * Mathf.Cos(angleRadians) - translatedPoint.y * Mathf.Sin(angleRadians),
+            translatedPoint.x * Mathf.Sin(angleRadians) + translatedPoint.y * Mathf.Cos(angleRadians),
+            0
+        );
+
+        // Translate point back
+        Vector3 finalPoint = rotatedPoint + pivot;
+
+        return finalPoint;
+    }
+
+    #endregion Math
+
+    #region WindSimulation
+
+    void CalculateWindRes()
+    {
+        windRes = Complement((width/maxWindResWidth));
+    }
+
+    private float CalculateWindAngle(float windAngle, float branchAngle)
+    {
+        if (90 <= branchAngle && branchAngle <= 180)
+        {
+            if (0 <= windAngle && windAngle <= 90)
+            {
+                return (windAngle * Complement(Normalize(branchAngle, 90,180)));
+            }
+            else if (0 >= windAngle && windAngle >= -90)
+            {
+                return (windAngle * Complement(Normalize(branchAngle, 90, 180)));
+            }
+        }
+
+        else if (0 <= branchAngle && branchAngle <= 90)
+        {
+            if (0 <= windAngle && windAngle <= 90)
+            {
+                return (windAngle * Complement(Normalize(branchAngle, 90, 0)));
+            }
+            else if (0 >= windAngle && windAngle >= -90)
+            {
+                return (windAngle * Complement(Normalize(branchAngle, 90, 0)));
+            }
+        }
+
+        else if (180 <= branchAngle && branchAngle <= 270)
+        {
+            if (0 <= windAngle && windAngle <= 90)
+            {
+                return -1 * (windAngle * Complement(Normalize(branchAngle, 270, 180)));
+            }
+            else if (0 >= windAngle && windAngle >= -90)
+            {
+                return -1 * (windAngle * Complement(Normalize(branchAngle, 270, 180)));
+            }
+        }
+
+        else if (270 <= branchAngle && branchAngle <= 360)
+        {
+            if (0 <= windAngle && windAngle <= 90)
+            {
+                return -1 * (windAngle * Complement(Normalize(branchAngle, 270, 360)));
+            }
+            else if (0 >= windAngle && windAngle >= -90)
+            {
+                return -1 * (windAngle * Complement(Normalize(branchAngle, 270, 360)));
+            }
+        }
+        return 0;
+    }
+
+    void ApplyWind(float windAmount)
+    {
+        CalculateWindRes();
+
+        // Calculate distances between segments
+        List<float> distances = new List<float>();
+        for (int i = 0; i < segments.Count - 1; i++)
+        {
+            distances.Add(Vector3.Distance(segments[i].reletivePosition, segments[i + 1].reletivePosition));
+        }
+
+        //branchAngle = AngleBetweenVectors(segments[0].reletivePosition, segments[segments.Count-1].reletivePosition);
+        branchAngle = AngleBetweenTwoPoints(segments[0].reletivePosition, segments[segments.Count - 1].reletivePosition);
+        float eachSegsAngle = (CalculateWindAngle(windAmount,branchAngle) * windRes) / (segments.Count - 1);
+        float angle = 0;
+
+        for (int i = 1; i < segments.Count; i++)
+        {
+            // Rotate segment
+            segments[i].windyReletivePosition = RotatePoint(segments[i].reletivePosition, segments[0].reletivePosition, angle);
+            segments[i].windBendingAngle = angle;
+            angle += eachSegsAngle;
+
+            // Adjust position to maintain distance to previous segment
+            Vector3 direction = (segments[i].windyReletivePosition - segments[i - 1].windyReletivePosition).normalized;
+            segments[i].windyReletivePosition = segments[i - 1].windyReletivePosition + direction * distances[i - 1];
+        }
+    }
+
+    private void CalculateWindyWorldPositions()
+    {
+        if (parentSegment != null)
+        {
+            for (int i = 0; i < segments.Count; i++)
+            {
+                segments[i].windyWorldPosition = parentSegment.windyWorldPosition + segments[i].windyReletivePosition;
+            }
+        }
+        else
+        {
+            for (int i = 0; i < segments.Count; i++)
+            {
+                segments[i].windyWorldPosition = segments[i].windyReletivePosition;
+            }
+        }
+    }
+
+    private void Wind()
+    {
+        if (theTreeClass.wind)
+        {
+            ApplyWind(theTreeClass.windAngle);
+            CalculateWindyWorldPositions();
+        }
+    }
+
+    #endregion WindSimulation
+
+    #region Selection
+
+    bool IsNearLine(Vector3 point, LineRenderer lineRenderer, float lineWidth)
+    {
+        // Get the positions of the line segments
+        Vector3[] positions = new Vector3[lineRenderer.positionCount];
+        lineRenderer.GetPositions(positions);
+
+        // Check if the point is near any of the line segments
+        for (int i = 0; i < positions.Length - 1; i++)
+        {
+            Vector3 startPos = positions[i];
+            Vector3 endPos = positions[i + 1];
+
+            // Calculate the distance from the point to the current line segment
+            float distance = DistancePointLine(point, startPos, endPos);
+
+            // Check if the distance is less than or equal to half of the line width
+            if (distance <= lineWidth / 2f)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    float DistancePointLine(Vector3 point, Vector3 lineStart, Vector3 lineEnd)
+    {
+        return Vector3.Magnitude(ProjectPointLine(point, lineStart, lineEnd) - point);
+    }
+
+    Vector3 ProjectPointLine(Vector3 point, Vector3 lineStart, Vector3 lineEnd)
+    {
+        Vector3 relativePoint = point - lineStart;
+        Vector3 lineDirection = lineEnd - lineStart;
+        float length = lineDirection.magnitude;
+        Vector3 normalizedLineDirection = lineDirection;
+
+        if (length > .000001f) 
+        { 
+            normalizedLineDirection /= length;
+        }
+
+        float dot = Vector3.Dot(normalizedLineDirection, relativePoint);
+
+        dot = Mathf.Clamp(dot, 0.0f, length);
+
+        return lineStart + normalizedLineDirection * dot;
+    }
+
+    void CheckMouse()
+    {
+        // Check if the user clicked the left mouse button
+        if (Input.GetMouseButtonDown(0))
+        {
+            // The user clicked the left mouse button
+            // Get the mouse position in world space
+            Vector3 mousePos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
+            mousePos.z = 0;
+
+            // Check if the mouse is near the line renderer
+            if (IsNearLine(mousePos, lineRenderer, width))
+            {
+                // The user clicked on the line renderer
+                Destroy(this.gameObject);
+            }
+        }
+    }
+
+    #endregion Selection
+}
+
+
+
+DayNightCycle.cs
+
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.Rendering.Universal; // Make sure to use the correct namespace for your version of Unity
+
+public class DayNightCycle : MonoBehaviour
+{
+    public Light2D globalLight; // Change the type to Light2D
+    public Gradient lightColor;
+    public float dayLength;
+    public float nightLength;
+    public float transitionTime; // The time it takes to transition between day and night
+
+    private float timeOfDay;
+    private bool isDay = true;
+    private float transitionProgress; // A variable to track the progress of the transition
+
+    void Update()
+    {
+        if (isDay)
+        {
+            timeOfDay += Time.deltaTime / dayLength;
+            if (timeOfDay > 1)
+            {
+                timeOfDay = 0;
+                isDay = false;
+            }
+        }
+        else
+        {
+            timeOfDay += Time.deltaTime / nightLength;
+            if (timeOfDay > 1)
+            {
+                timeOfDay = 0;
+                isDay = true;
+            }
+        }
+
+        // Update the transition progress
+        if (isDay && timeOfDay < transitionTime / dayLength)
+        {
+            transitionProgress = timeOfDay / (transitionTime / dayLength);
+        }
+        else if (!isDay && timeOfDay < transitionTime / nightLength)
+        {
+            transitionProgress = timeOfDay / (transitionTime / nightLength);
+        }
+        else
+        {
+            transitionProgress = 1;
+        }
+
+        // Use the transition progress to evaluate the lightColor gradient
+        globalLight.color = lightColor.Evaluate(transitionProgress);
+    }
+}
+
+
+DNA.cs
+
+using UnityEngine;
+
+[CreateAssetMenu(fileName = "Data", menuName = "Tree/DNA", order = 1)]
+public class DNA : ScriptableObject
+{
+    public string treeName;
+
+    public float lengthToBeDarkestBark = 4;
+
+}
+
+
+FixCameraBetweenTwoPoints.cs
+
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class FixCameraBetweenTwoPoints : MonoBehaviour
+{
+    //public Transform point1;
+    //public Transform point2;
+    public float minSize = 5f;
+    public float maxSize = 10f;
+    public float zoomLerpSpeed = 1f;
+    public float smoothTime = 0.3f;
+    public Vector2 deadZone = new Vector2(20f, 30f);
+    public float moveSpeed = 5f;
+    public float dragSpeed = 0.3f;
+    public float zoomSpeed = 3f;
+
+    public Tree theTree;
+
+    private Camera cam;
+    private Vector3 velocity = Vector3.zero;
+    private bool freeCameraMode = false;
+    private Vector3 dragOrigin;
+
+    void Start()
+    {
+        cam = GetComponent<Camera>();
+    }
+
+    void Update()
+    {
+        if (Input.GetKeyDown(KeyCode.F))
+        {
+            // Toggle between free camera mode and two-point camera mode
+            freeCameraMode = !freeCameraMode;
+        }
+
+        if (freeCameraMode)
+        {
+            // Move the camera using the WASD keys
+            float horizontal = Input.GetAxis("Horizontal");
+            float vertical = Input.GetAxis("Vertical");
+            transform.position += new Vector3(horizontal, vertical, 0) * moveSpeed * Time.deltaTime;
+
+            // Zoom the camera using the mouse scroll wheel
+            float scroll = Input.GetAxis("Mouse ScrollWheel");
+            cam.orthographicSize -= scroll * zoomSpeed;
+            cam.orthographicSize = Mathf.Clamp(cam.orthographicSize, minSize, maxSize);
+
+            // Drag the camera using the mouse
+            if (Input.GetMouseButtonDown(0))
+            {
+                dragOrigin = Input.mousePosition;
+                return;
+            }
+
+            if (!Input.GetMouseButton(0)) return;
+
+            Vector3 pos = Camera.main.ScreenToViewportPoint(Input.mousePosition - dragOrigin);
+            Vector3 move = new Vector3(pos.x * dragSpeed, pos.y * dragSpeed, 0);
+
+            // Calculate the difference between the camera's position and its target position
+            Vector3 difference = move;
+
+            // Check if the difference exceeds the dead zone
+            if (Mathf.Abs(difference.x) > deadZone.x || Mathf.Abs(difference.y) > deadZone.y)
+            {
+                transform.Translate(move, Space.World);
+                dragOrigin = Input.mousePosition;
+            }
+        }
+        else
+        {
+            // Find the midpoint between the two points
+            Vector3 midpoint = (new Vector3(0, 0, 0) + new Vector3(0, theTree.heightOfTheTree, 0)) / 2f;
+
+            // Set the camera's position to the midpoint, but maintain its original z value
+            Vector3 targetPosition = new Vector3(midpoint.x, midpoint.y, transform.position.z);
+            transform.position = Vector3.SmoothDamp(transform.position, targetPosition, ref velocity, smoothTime);
+
+            // Find the distance between the two points
+            float distance = Vector3.Distance(new Vector3(0, 0, 0) , new Vector3(0, theTree.heightOfTheTree, 0));
+
+            // Calculate the new size of the camera based on the distance between the points
+            float newSize = Mathf.Lerp(minSize, maxSize, distance / maxSize);
+
+            // Lerp the camera's size to the new size
+            cam.orthographicSize = Mathf.Lerp(cam.orthographicSize, newSize, Time.deltaTime * zoomLerpSpeed);
+        }
+    }
+
+    void OnDrawGizmos()
+    {
+        Gizmos.color = Color.red;
+        Gizmos.DrawWireCube(transform.position, new Vector3(deadZone.x * 2f, deadZone.y * 2f, 0));
+    }
+}
+
+
+GameManager.cs
+
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using TMPro;
+
+public class GameManager : MonoBehaviour
+{
+    public GameObject theTree;
+    public GameObject theTreePrefab;
+
+    public Tree theTreeClass;
+
+    public TMP_Text DayText;
+
+    public bool randomOrUseSeed = true;
+
+    public int seed = 69696969;
+
+    void Start()
+    {
+        if (randomOrUseSeed)
+        {
+            SetARandomSeed();
+        }
+        Random.InitState(seed);
+
+        theTreeClass = theTree.GetComponent<Tree>();
+    }
+
+    // Update is called once per frame
+    void Update()
+    {
+        if (Input.GetKeyDown(KeyCode.R))
+        {
+            if (randomOrUseSeed)
+            {
+                SetARandomSeed();
+            }
+            ResetTheTree();
+        }
+
+        if (Input.GetKeyDown(KeyCode.W))
+        {
+            ToggleWind();
+        }
+
+        if (Input.GetKeyDown(KeyCode.S))
+        {
+            TogglePause();
+        }
+
+        UpdateDayText();
+    }
+    private void ResetTheTree()
+    {
+        Destroy(theTree);
+
+        theTree      = Instantiate(theTreePrefab);
+        theTreeClass = theTree.GetComponent<Tree>();
+    }
+
+    private void ToggleWind()
+    {
+        theTreeClass.wind = !theTreeClass.wind;
+    }
+
+    private void TogglePause()
+    {
+        theTreeClass.grow = !theTreeClass.grow;
+    }
+
+    private void SetARandomSeed()
+    {
+        seed = Random.Range(1, 999999999);
+    }
+
+    private void UpdateDayText()
+    {
+        DayText.text = "Day: " + Mathf.FloorToInt(theTreeClass.timePassed*theTreeClass.growthSpeedAmp).ToString();
+    }
+}
+
+
+Leaf.cs
+
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using System;
+
+public class Leaf : MonoBehaviour
+{
+    public Sprite image;
+    public GameObject sprite;
+    public Tree tree;
+
+    public Segment daddySeg;
+
+    public Branch mommyBra;
+
+    public bool side;
+
+    public float size;
+    private float growthSpeed = 0.1f;
+    public float offAngle;
+
+    private void Update()
+    {
+        if (tree.wind)
+        {
+            float windyOffAngle = CalculateOffsetFromBranch();
+            transform.position = CalculateEndPoint(daddySeg.windyWorldPosition, mommyBra.width/2, windyOffAngle);
+            //transform.rotation = Quaternion.Euler(0, 0, (offAngle + daddySeg.windBendingAngle) );// +daddySeg.windBendingAngle
+            transform.rotation = Quaternion.Euler(0, 0, (windyOffAngle-90));// +daddySeg.windBendingAngle
+        }
+        else
+        {
+            transform.position = CalculateEndPoint(daddySeg.worldPosition, mommyBra.width /2, offAngle+90);
+            transform.rotation = Quaternion.Euler(0, 0, (offAngle));
+        }
+        sprite.transform.localScale = new Vector3(size,size,0);
+
+        if (size < 1) 
+        {
+            size += growthSpeed * Time.deltaTime;
+        }
+
+    }
+
+    private Vector3 CalculateEndPoint(Vector3 startPoint, float distance, float angle)
+    {
+        float angleRadians = angle * Mathf.Deg2Rad;
+
+        float x = startPoint.x + distance * Mathf.Cos(angleRadians);
+        float y = startPoint.y + distance * Mathf.Sin(angleRadians);
+
+        return new Vector3(x, y, startPoint.z);
+    }
+
+    public static float PerpendicularAngle(Vector2 point1, Vector2 point2, bool side)
+    {
+        float dx = point2.x - point1.x;
+        float dy = point2.y - point1.y;
+        float perpSlope = -dx / dy;
+
+        float angle = Mathf.Atan(perpSlope) * Mathf.Rad2Deg;
+
+        if (side)
+        {
+            angle += 180;
+        }
+
+        return angle;
+    }
+
+    private float CalculateOffsetFromBranch()// this works only in windy
+    {
+        float perpendicularAngle = 0;
+
+        try
+        {
+            if (daddySeg.index == 0)
+            {
+                perpendicularAngle = PerpendicularAngle(daddySeg.windyReletivePosition, mommyBra.segments[1].windyWorldPosition, side);
+            }
+            else if (daddySeg.index == mommyBra.segments.Count - 1)
+            {
+                perpendicularAngle = PerpendicularAngle(mommyBra.segments[daddySeg.index - 1].windyWorldPosition, daddySeg.windyWorldPosition, side);
+            }
+            else
+            {
+                perpendicularAngle = PerpendicularAngle(mommyBra.segments[daddySeg.index - 1].windyWorldPosition, mommyBra.segments[daddySeg.index + 1].windyWorldPosition, side);
+            }
+        }
+        catch (ArgumentOutOfRangeException ex)
+        {
+            Debug.Log("Caught ArgumentOutOfRangeException: " + ex.Message);
+            Debug.Log("daddySeg.index: " + daddySeg.index);
+            Debug.Log("mommyBra.Count: " + mommyBra.segments.Count);
+            Time.timeScale = 0;
+        }
+
+        return perpendicularAngle;
+    }
+
+
+}
+
+
+LSystem.cs
+
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class LSystem : MonoBehaviour
+{
+
+    //DEAD CLASS
+
+    public string axiom;
+    public List<string> generations;
+    public Dictionary<string, string> rules = new Dictionary<string, string>();
+
+
+}
+
+
+Segment.cs
+
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+[System.Serializable]
+public class Segment
+{
+    public int index;
+
+    public Vector3 reletivePosition;
+    public Vector3 worldPosition;
+
+    public Vector3 windyReletivePosition;
+    public Vector3 windyWorldPosition;
+
+    public bool  grows = true;
+    public float angle = 90;
+
+    public float windBendingAngle = 0;
+
+    public bool oneChild = false;
+              
+    //public List<Branch> branchChildrens;              
+    //public List<Leaf> branchChildrens;
+    //public List<Fruit> branchChildrens;
+    //public List<Fruit> branchChildrens;
+
+    public Segment(Vector3 v3Location,int intIndex,float floatAngle)
+    {
+        reletivePosition = v3Location;
+        index = intIndex;
+        angle = floatAngle;
+        grows = true;
+        oneChild = false;
+    }
+}
+
+
+Tree.cs
+
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class Tree : MonoBehaviour
+{
+    [SerializeField] private Transform treesLocation;
+
+    [SerializeField] public Dictionary<int, List<Branch>> branches = new Dictionary<int, List<Branch>>();
+
+    public Segment highestSegmentOfTheTree;
+
+    public GameObject branchBluePrint;
+    public GameObject LeafBluePrint;
+
+    public GameManager gameManager;
+
+    [System.NonSerialized] public bool wind = true;
+    public bool grow = true;
+
+    public int maxGeneration = 5;
+    public int rngSeed;
+
+    public float productionCreddit = 5f;
+    public float productionCredditPS = 0f;
+
+    public int leafs = 0;
+
+    public float heightOfTheTree;
+
+    public float timePassed = 0f;
+    public float lengthToBeDarkestBark;
+
+    private float windSpeed = 90; 
+    public float windAngle = 0;
+    public float windChangeSpeed = 1;
+
+    public float perlinX = 0;
+    public float perlinY = 0;
+
+    [Range(0.0f, 10.0f)]
+    public float growthSpeedAmp = 1;
+    
+    //public GameObject debugy;
+
+    void Start()
+    {
+        InvokeRepeating("FindTheHeightestSeg", 2, 1);
+
+        treesLocation = this.transform;
+
+        gameManager = GameObject.Find("GameManager").GetComponent<GameManager>();
+        GameObject.Find("Main Camera").GetComponent<FixCameraBetweenTwoPoints>().theTree = this.GetComponent<Tree>();
+        Random.InitState(gameManager.seed);
+    }
+
+
+    void Update()
+    {
+        if (grow)
+        {
+            timePassed += Time.deltaTime;
+        }
+
+        heightOfTheTree = highestSegmentOfTheTree.worldPosition.y;
+
+        Vector3 startPoint = new Vector3(-30, heightOfTheTree, 0);
+        Vector3 endPoint = new Vector3(30, heightOfTheTree, 0);
+
+        Debug.DrawLine(startPoint, endPoint, Color.red);
+
+        perlinX += windChangeSpeed * Time.deltaTime;
+        perlinY += (windChangeSpeed+0.02f) * Time.deltaTime;
+
+        windAngle = SetWindAngle(perlinX, perlinY,-windSpeed, windSpeed, 0,0);
+
+        ProductionCredditCalculator();
+    }
+
+    public void FindTheHeightestSeg()// change this shit later
+    {
+        float highestYet = 0;
+        Segment highestSeg = new Segment(new Vector3(0,0,0),0,90);
+
+        foreach (int key in branches.Keys)
+        {
+            foreach(Branch branch in branches[key])
+            {
+                foreach(Segment seg in branch.segments)
+                {
+                    if(seg.worldPosition.y > highestYet)
+                    {
+                        highestYet = seg.worldPosition.y;
+                        highestSeg = seg;
+                    }
+                }
+            }
+        }
+
+        highestSegmentOfTheTree = highestSeg;
+    }
+
+    float SetWindAngle(float x, float y, float minAngle, float maxAngle, float deadZoneMin, float deadZoneMax)
+    {
+        float windAngle = Mathf.PerlinNoise(x, y) * (maxAngle - minAngle) + minAngle;
+
+        if (windAngle >= deadZoneMin && windAngle <= deadZoneMax)
+        {
+            windAngle = deadZoneMax + 0.1f;
+        }
+
+        return windAngle;
+    }
+
+    private void ProductionCredditCalculator()
+    {
+        productionCredditPS = (float)(leafs * 0.07); 
+        productionCreddit += productionCredditPS * Time.deltaTime;
+    }
+}
